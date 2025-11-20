@@ -1,115 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FastRPC Gas Tank - Wallet Connect</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background-color: #0a0a0a;
-      color: #ffffff;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      padding: 2rem;
-    }
-
-    #root {
-      width: 100%;
-      max-width: 600px;
-    }
-
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-  </style>
-</head>
-<body>
-  <div id="root"></div>
-
-  <!-- Import Map for ES modules -->
-  <script type="importmap">
-    {
-      "imports": {
-        "react": "https://esm.sh/react@18",
-        "react-dom": "https://esm.sh/react-dom@18",
-        "@walletconnect/sign-client": "https://esm.sh/@walletconnect/sign-client@2.14.0",
-        "@walletconnect/types": "https://esm.sh/@walletconnect/types@2.14.0",
-        "qrcode": "https://esm.sh/qrcode@1.5.3"
-      }
-    }
-  </script>
-
-  <!-- Inject environment variables for client-side access -->
-  <script>
-    // Initialize environment object
-    window.__ENV__ = window.__ENV__ || {};
-    
-    // Load environment variables from Vercel serverless function
-    // Fallback to empty object if API is not available
-    (async function() {
-      try {
-        const response = await fetch('/api/env.js');
-        if (response.ok) {
-          const script = await response.text();
-          eval(script);
-        }
-      } catch (error) {
-        console.warn('Could not load environment variables:', error);
-      }
-      
-      // Initialize app after environment variables are loaded (or timeout)
-      initializeApp();
-    })();
-    
-    // Fallback: Initialize app after 100ms if env loading takes too long
-    setTimeout(() => {
-      if (!window.__APP_INITIALIZED__) {
-        initializeApp();
-      }
-    }, 100);
-    
-    function initializeApp() {
-      if (window.__APP_INITIALIZED__) return;
-      window.__APP_INITIALIZED__ = true;
-      
-      // Configuration - Update these values
-      window.APP_CONFIG = {
-        EXTENSION_ID: 'obolaknhonmbgdcmfiihbdcenhhiiaao',
-        PROJECT_ID: '' // Will be set from environment, URL param, or localStorage
-      };
-
-      // Priority: 1. Environment variable (for Vercel), 2. URL parameter, 3. localStorage
-      // Check for environment variable (injected by Vercel serverless function)
-      const envProjectId = window.__ENV__?.WALLETCONNECT_PROJECT_ID || 
-                           window.__ENV__?.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
-      
-      // Try to get PROJECT_ID from URL parameter or localStorage
-      const urlParams = new URLSearchParams(window.location.search);
-      const projectIdFromUrl = urlParams.get('projectId');
-      const projectIdFromStorage = localStorage.getItem('WALLETCONNECT_PROJECT_ID');
-      
-      if (envProjectId) {
-        window.APP_CONFIG.PROJECT_ID = envProjectId;
-      } else if (projectIdFromUrl) {
-        window.APP_CONFIG.PROJECT_ID = projectIdFromUrl;
-        localStorage.setItem('WALLETCONNECT_PROJECT_ID', projectIdFromUrl);
-      } else if (projectIdFromStorage) {
-        window.APP_CONFIG.PROJECT_ID = projectIdFromStorage;
-      }
-
-      // Import and initialize the app
-      import('./app.js');
-    }
-  </script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FastRPC Gas Tank - Wallet Connect</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>

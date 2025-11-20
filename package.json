@@ -1,11 +1,26 @@
 {
   "name": "fastrpc-gas-tank-connect",
   "version": "1.0.0",
-  "description": "FastRPC Gas Tank Wallet Connect - Single Page Application",
   "type": "module",
   "scripts": {
-    "dev": "npx serve .",
-    "start": "npx serve ."
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "@walletconnect/sign-client": "^2.14.0",
+    "@walletconnect/types": "^2.14.0",
+    "qrcode": "^1.5.3"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@types/qrcode": "^1.5.5",
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.0.8"
   },
   "keywords": [
     "walletconnect",
@@ -19,4 +34,3 @@
     "node": ">=18.0.0"
   }
 }
-

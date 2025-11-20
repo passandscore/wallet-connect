@@ -1,91 +1,34 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { createRoot } from 'react-dom/client';
+import { useState, useEffect, useRef } from 'react';
 import SignClient from '@walletconnect/sign-client';
-import * as Types from '@walletconnect/types';
 import QRCode from 'qrcode';
+import { getExtensionId, getProjectId, getMetadata } from './config';
+import './App.css';
 
-// Get configuration - wait for it to be set
-function getConfig() {
-  // Wait for APP_CONFIG to be available (with timeout)
-  return new Promise((resolve) => {
-    let attempts = 0;
-    const maxAttempts = 50; // 5 seconds max wait
-    
-    const checkConfig = () => {
-      if (window.APP_CONFIG || attempts >= maxAttempts) {
-        const EXTENSION_ID = window.APP_CONFIG?.EXTENSION_ID || 'obolaknhonmbgdcmfiihbdcenhhiiaao';
-        let PROJECT_ID = window.APP_CONFIG?.PROJECT_ID || '';
-        
-        // If PROJECT_ID is still not set, prompt user (only in browser, not on Vercel)
-        if (!PROJECT_ID && typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
-          // Don't prompt on production, just log
-          console.warn('WalletConnect Project ID not set. Please set it via URL parameter: ?projectId=YOUR_ID');
-        }
-        
-        resolve({ EXTENSION_ID, PROJECT_ID });
-      } else {
-        attempts++;
-        setTimeout(checkConfig, 100);
-      }
-    };
-    
-    checkConfig();
-  });
-}
-
-// Helper functions to get config values
-const getExtensionId = () => {
-  return window.APP_CONFIG?.EXTENSION_ID || 'obolaknhonmbgdcmfiihbdcenhhiiaao';
-};
-
-const getProjectId = () => {
-  return window.APP_CONFIG?.PROJECT_ID || '';
-};
-
-// WalletConnect Metadata
-const getMetadata = () => {
-  return {
-    name: 'FastRPC Gas Tank',
-    description: 'FastRPC service to handle your gas payments',
-    url: window.location.origin,
-    icons: [`${window.location.origin}/favicon.ico`],
-  };
-};
-
-function WalletConnectPage() {
+function App() {
   const [qrCode, setQrCode] = useState(null);
   const [state, setState] = useState('initializing');
   const [error, setError] = useState(null);
   
   // Guard to prevent double initialization (React Strict Mode)
   const initialized = useRef(false);
-  const connecting = useRef(false); // Guard to prevent multiple connect() calls
+  const connecting = useRef(false);
   const clientRef = useRef(null);
   const approvalPromiseRef = useRef(null);
 
   // Simplified session persistence check
-  /**
-   * @description Simplified persistence check - WalletConnect SignClient automatically
-   * saves the session internally when the approval promise resolves. We just need a small
-   * defensive wait before handing off to the extension.
-   */
   async function forceSessionPersistence() {
     console.log('[Connect Page] Session approval resolved. WalletConnect has already saved it internally.');
     
-    // Request persistent storage permission (helps prevent IndexedDB eviction)
     if ('storage' in navigator && 'persist' in navigator.storage) {
       const isPersisted = await navigator.storage.persist();
       console.log('[Connect Page] Persistent storage granted:', isPersisted);
     }
     
-    // Small defensive wait to allow any pending IndexedDB writes to flush
-    // The actual session is already saved by WalletConnect when approval() resolved
     await new Promise(resolve => setTimeout(resolve, 50));
     console.log('[Connect Page] Session persistence check complete.');
   }
 
   useEffect(() => {
-    // 🛑 CRITICAL CHECK: Exit early if already initialized
     if (initialized.current) {
       return;
     }
@@ -94,20 +37,16 @@ function WalletConnectPage() {
 
     async function initWalletConnect() {
       try {
-        // Get current config values
         const currentProjectId = getProjectId();
-        const currentExtensionId = getExtensionId();
         
-        // Validate Project ID before proceeding
         if (!currentProjectId || currentProjectId === '') {
-          throw new Error('WalletConnect Project ID is missing. Please set PROJECT_ID in the configuration or via URL parameter: ?projectId=YOUR_ID');
+          throw new Error('WalletConnect Project ID is missing. Please set VITE_WALLETCONNECT_PROJECT_ID or use URL parameter: ?projectId=YOUR_ID');
         }
 
         setState('initializing');
         setError(null);
         setQrCode(null);
 
-        // 1. Initialize WalletConnect client (only if not already initialized)
         let client = clientRef.current;
         if (!client) {
           client = await SignClient.init({
@@ -117,14 +56,12 @@ function WalletConnectPage() {
           clientRef.current = client;
         }
 
-        // 🛑 CRITICAL: Prevent multiple connect() calls which create multiple proposals
         if (connecting.current) {
           console.log('Connection already in progress, skipping duplicate connect() call');
           return;
         }
         connecting.current = true;
 
-        // 2. Connect and get pairing URI
         const { uri, approval } = await client.connect({
           requiredNamespaces: {
             eip155: {
@@ -144,10 +81,8 @@ function WalletConnectPage() {
           throw new Error('Failed to generate pairing URI');
         }
 
-        // Store the approval promise in a ref so it persists across re-renders
         approvalPromiseRef.current = approval();
 
-        // 3. Generate QR code
         const qrDataUrl = await QRCode.toDataURL(uri, {
           width: 400,
           margin: 2,
@@ -160,12 +95,10 @@ function WalletConnectPage() {
         setQrCode(qrDataUrl);
         setState('connecting');
 
-        // 4. Wait for user to scan QR code and approve (using the stored promise)
         let session;
         try {
           session = await approvalPromiseRef.current;
         } catch (approvalErr) {
-          // Handle approval errors (including proposal expiration) separately
           const approvalErrorMsg = approvalErr instanceof Error 
             ? approvalErr.message 
             : typeof approvalErr === 'string' 
@@ -182,23 +115,15 @@ function WalletConnectPage() {
             setQrCode(null);
             return;
           }
-          // Re-throw other approval errors to be caught by outer catch
           throw approvalErr;
         }
         console.log('WalletConnect session established:', session);
 
-        // Validate that the session includes the required chain
         const requiredChain = 'eip155:560048';
         const sessionChains = session.namespaces.eip155?.chains || [];
         const sessionAccounts = session.namespaces.eip155?.accounts || [];
 
-        console.log('Session validation - Required chain:', requiredChain);
-        console.log('Session validation - Session chains:', sessionChains);
-        console.log('Session validation - Session accounts:', sessionAccounts);
-
-        // Check if chain is in chains array
         const chainInChainsArray = sessionChains.includes(requiredChain);
-        // Check if any account is on the required chain (format: eip155:chainId:address)
         const hasAccountOnChain = sessionAccounts.some((acc) => {
           const parts = acc.split(':');
           return parts.length >= 3 && parts[0] === 'eip155' && parts[1] === '560048';
@@ -206,15 +131,7 @@ function WalletConnectPage() {
 
         const hasRequiredChain = chainInChainsArray || hasAccountOnChain;
 
-        console.log('Session validation - Chain in chains array:', chainInChainsArray);
-        console.log('Session validation - Has account on chain:', hasAccountOnChain);
-        console.log('Session validation - Has required chain:', hasRequiredChain);
-
         if (!hasRequiredChain) {
-          console.error('Session validation failed: Missing required chain eip155:560048');
-          console.error('Session namespaces:', JSON.stringify(session.namespaces, null, 2));
-          
-          // Provide helpful error message
           const approvedChains = sessionChains.length > 0 
             ? sessionChains.join(', ') 
             : sessionAccounts.map((acc) => {
@@ -229,15 +146,10 @@ function WalletConnectPage() {
           );
         }
 
-        // 5. Force session persistence to IndexedDB before sending to extension
         console.log('[Connect Page] Forcing session persistence...');
         await forceSessionPersistence();
 
-        // 6. Send and AWAIT Confirmation from Extension
         if (window.chrome && window.chrome.runtime) {
-          
-          // CRITICAL: We wrap the sendMessage call in a Promise to await the
-          // Extension's response, which confirms the Background Script has saved the data.
           await new Promise((resolve, reject) => {
             if (!window.chrome?.runtime) {
               return reject(new Error('Chrome extension runtime not available.'));
@@ -250,10 +162,8 @@ function WalletConnectPage() {
                   topic: session.topic,
                   namespaces: session.namespaces,
                   expiry: session.expiry,
-                  // Include all necessary fields for background script to save
                 },
               },
-              // The callback function handles the response from the background script
               (response) => {
                 if (chrome.runtime.lastError) {
                   return reject(new Error(`Extension Runtime Error: ${chrome.runtime.lastError.message}`));
@@ -262,8 +172,6 @@ function WalletConnectPage() {
                 if (response && response.success) {
                   console.log('[Connect Page] ✅ Extension confirmed session save to chrome.storage.local.');
                   
-                  // CRITICAL: Request the Bridge Page to reload/re-initialize SignClient
-                  // This ensures the bridge page loads the session from storage into its active memory
                   if (window.chrome && window.chrome.runtime) {
                     console.log('[Connect Page] Requesting bridge page to reload and re-initialize SignClient...');
                     window.chrome.runtime.sendMessage(
@@ -272,14 +180,11 @@ function WalletConnectPage() {
                       (bridgeResponse) => {
                         if (chrome.runtime.lastError) {
                           console.warn('[Connect Page] Failed to force bridge reload:', chrome.runtime.lastError.message);
-                          // Don't fail the whole connection if bridge reload fails
-                          // The bridge will eventually load the session on its next init
                         } else if (bridgeResponse && bridgeResponse.success) {
                           console.log('[Connect Page] ✅ Bridge page reloaded and SignClient re-initialized.');
                         } else {
                           console.warn('[Connect Page] Bridge reload response:', bridgeResponse);
                         }
-                        // Continue to resolve the main connection process
                         resolve();
                       }
                     );
@@ -295,14 +200,11 @@ function WalletConnectPage() {
             );
           });
           
-          // Only if the Promise resolves (i.e., Background Script saved the data and bridge reloaded)
           setState('connected');
-          
         } else {
           throw new Error('Chrome extension runtime not available.');
         }
       } catch (err) {
-        // Handle various error formats (Error object, string, etc.)
         const errorMessage = err instanceof Error 
           ? err.message 
           : typeof err === 'string' 
@@ -310,7 +212,6 @@ function WalletConnectPage() {
           : String(err);
         const errorString = errorMessage.toLowerCase();
         
-        // Silently handle "Proposal expired" errors - user can retry
         if (errorString.includes('proposal expired') || errorString.includes('expired')) {
           console.debug('Proposal expired, resetting for retry');
           initialized.current = false;
@@ -318,14 +219,12 @@ function WalletConnectPage() {
           setState('initializing');
           setError(null);
           setQrCode(null);
-          // Don't log to console.error to avoid showing in UI
           return;
         }
         
         console.error('WalletConnect error:', err);
         setError(errorMessage);
         setState('error');
-        // Reset flags on error so user can retry
         initialized.current = false;
         connecting.current = false;
       }
@@ -333,41 +232,32 @@ function WalletConnectPage() {
 
     initWalletConnect();
     
-    // Cleanup function for beforeunload event
     const handleBeforeUnload = (event) => {
-      // Don't prevent close if we're in connected state (session already persisted)
       if (state === 'connected') {
-        return; // Allow normal close
+        return;
       }
       
-      // If we have a session but haven't sent it yet, warn user
       if (clientRef.current) {
         const sessions = clientRef.current.session.getAll();
-        // Check if we have sessions and state is not connected
         const isNotConnected = state !== 'connected';
         if (sessions.length > 0 && isNotConnected) {
-          // Session exists but page is closing before connection completes
           event.preventDefault();
           event.returnValue = 'Session is being saved. Please wait...';
           return event.returnValue;
         }
       }
       
-      // Normal cleanup for other states
       if (clientRef.current) {
         try {
-          // Disconnect any active pairings (pending connection proposals)
           const pairings = clientRef.current.pairing.getAll({ active: true });
           pairings.forEach((pairing) => {
             try {
               clientRef.current?.core.pairing.disconnect({ topic: pairing.topic });
             } catch (err) {
-              // Silently fail - pairing may already be disconnected
               console.debug('Pairing cleanup:', err);
             }
           });
           
-          // Disconnect any active sessions
           const sessions = clientRef.current.session.getAll();
           sessions.forEach((session) => {
             try {
@@ -379,34 +269,27 @@ function WalletConnectPage() {
                 } 
               });
             } catch (err) {
-              // Silently fail - session may already be disconnected
               console.debug('Session cleanup:', err);
             }
           });
         } catch (err) {
-          // Silently fail - client may not be fully initialized
           console.debug('WalletConnect cleanup error:', err);
         }
       }
     };
 
-    // Register beforeunload event to clean up on tab close
     window.addEventListener('beforeunload', handleBeforeUnload);
     
-    // Cleanup on unmount
     return () => {
-      // Remove beforeunload listener
       window.removeEventListener('beforeunload', handleBeforeUnload);
       
       if (clientRef.current) {
         try {
-          // Clean up pairings and sessions on component unmount
           const pairings = clientRef.current.pairing.getAll({ active: true });
           pairings.forEach((pairing) => {
             try {
               clientRef.current?.core.pairing.disconnect({ topic: pairing.topic });
             } catch (err) {
-              // Silently fail - pairing may already be disconnected
               console.debug('Pairing cleanup on unmount:', err);
             }
           });
@@ -422,23 +305,19 @@ function WalletConnectPage() {
                 } 
               });
             } catch (err) {
-              // Silently fail - session may already be disconnected
               console.debug('Session cleanup on unmount:', err);
             }
           });
         } catch (err) {
-          // Silently fail - client may not be fully initialized
           console.debug('WalletConnect cleanup on unmount error:', err);
         }
       }
     };
-  }, []);
+  }, [state]);
 
   const [retryTrigger, setRetryTrigger] = useState(0);
 
-  // Retry function for the error state button
   async function connectWallet() {
-    // Reset all state and flags to allow retry
     initialized.current = false;
     connecting.current = false;
     clientRef.current = null;
@@ -449,11 +328,9 @@ function WalletConnectPage() {
     setRetryTrigger(prev => prev + 1);
   }
 
-  // Separate effect for retry functionality
   useEffect(() => {
-    if (retryTrigger === 0) return; // Skip on initial mount (handled by main effect)
+    if (retryTrigger === 0) return;
     
-    // Prevent double initialization
     if (initialized.current) {
       return;
     }
@@ -462,20 +339,16 @@ function WalletConnectPage() {
 
     async function initWalletConnect() {
       try {
-        // Get current config values
         const currentProjectId = getProjectId();
-        const currentExtensionId = getExtensionId();
         
-        // Validate Project ID before proceeding
         if (!currentProjectId || currentProjectId === '') {
-          throw new Error('WalletConnect Project ID is missing. Please set PROJECT_ID in the configuration or via URL parameter: ?projectId=YOUR_ID');
+          throw new Error('WalletConnect Project ID is missing. Please set VITE_WALLETCONNECT_PROJECT_ID or use URL parameter: ?projectId=YOUR_ID');
         }
 
         setState('initializing');
         setError(null);
         setQrCode(null);
 
-        // 1. Initialize WalletConnect client
         let client = clientRef.current;
         if (!client) {
           client = await SignClient.init({
@@ -485,14 +358,12 @@ function WalletConnectPage() {
           clientRef.current = client;
         }
 
-        // 🛑 CRITICAL: Prevent multiple connect() calls which create multiple proposals
         if (connecting.current) {
           console.log('Connection already in progress, skipping duplicate connect() call');
           return;
         }
         connecting.current = true;
 
-        // 2. Connect and get pairing URI
         const { uri, approval } = await client.connect({
           requiredNamespaces: {
             eip155: {
@@ -513,10 +384,8 @@ function WalletConnectPage() {
           throw new Error('Failed to generate pairing URI');
         }
 
-        // Store the approval promise in a ref so it persists across re-renders
         approvalPromiseRef.current = approval();
 
-        // 3. Generate QR code
         const qrDataUrl = await QRCode.toDataURL(uri, {
           width: 400,
           margin: 2,
@@ -529,12 +398,10 @@ function WalletConnectPage() {
         setQrCode(qrDataUrl);
         setState('connecting');
 
-        // 4. Wait for user to scan QR code and approve
         let session;
         try {
           session = await approvalPromiseRef.current;
         } catch (approvalErr) {
-          // Handle approval errors (including proposal expiration) separately
           const approvalErrorMsg = approvalErr instanceof Error 
             ? approvalErr.message 
             : typeof approvalErr === 'string' 
@@ -551,23 +418,15 @@ function WalletConnectPage() {
             setQrCode(null);
             return;
           }
-          // Re-throw other approval errors to be caught by outer catch
           throw approvalErr;
         }
         console.log('WalletConnect session established:', session);
 
-        // Validate that the session includes the required chain
         const requiredChain = 'eip155:560048';
         const sessionChains = session.namespaces.eip155?.chains || [];
         const sessionAccounts = session.namespaces.eip155?.accounts || [];
 
-        console.log('Session validation - Required chain:', requiredChain);
-        console.log('Session validation - Session chains:', sessionChains);
-        console.log('Session validation - Session accounts:', sessionAccounts);
-
-        // Check if chain is in chains array
         const chainInChainsArray = sessionChains.includes(requiredChain);
-        // Check if any account is on the required chain (format: eip155:chainId:address)
         const hasAccountOnChain = sessionAccounts.some((acc) => {
           const parts = acc.split(':');
           return parts.length >= 3 && parts[0] === 'eip155' && parts[1] === '560048';
@@ -575,15 +434,7 @@ function WalletConnectPage() {
 
         const hasRequiredChain = chainInChainsArray || hasAccountOnChain;
 
-        console.log('Session validation - Chain in chains array:', chainInChainsArray);
-        console.log('Session validation - Has account on chain:', hasAccountOnChain);
-        console.log('Session validation - Has required chain:', hasRequiredChain);
-
         if (!hasRequiredChain) {
-          console.error('Session validation failed: Missing required chain eip155:560048');
-          console.error('Session namespaces:', JSON.stringify(session.namespaces, null, 2));
-          
-          // Provide helpful error message
           const approvedChains = sessionChains.length > 0 
             ? sessionChains.join(', ') 
             : sessionAccounts.map((acc) => {
@@ -598,15 +449,10 @@ function WalletConnectPage() {
           );
         }
 
-        // 5. Force session persistence to IndexedDB before sending to extension
         console.log('[Connect Page] Forcing session persistence...');
         await forceSessionPersistence();
 
-        // 6. Send and AWAIT Confirmation from Extension
         if (window.chrome && window.chrome.runtime) {
-          
-          // CRITICAL: We wrap the sendMessage call in a Promise to await the
-          // Extension's response, which confirms the Background Script has saved the data.
           await new Promise((resolve, reject) => {
             if (!window.chrome?.runtime) {
               return reject(new Error('Chrome extension runtime not available.'));
@@ -619,10 +465,8 @@ function WalletConnectPage() {
                   topic: session.topic,
                   namespaces: session.namespaces,
                   expiry: session.expiry,
-                  // Include all necessary fields for background script to save
                 },
               },
-              // The callback function handles the response from the background script
               (response) => {
                 if (chrome.runtime.lastError) {
                   return reject(new Error(`Extension Runtime Error: ${chrome.runtime.lastError.message}`));
@@ -631,8 +475,6 @@ function WalletConnectPage() {
                 if (response && response.success) {
                   console.log('[Connect Page] ✅ Extension confirmed session save to chrome.storage.local.');
                   
-                  // CRITICAL: Request the Bridge Page to reload/re-initialize SignClient
-                  // This ensures the bridge page loads the session from storage into its active memory
                   if (window.chrome && window.chrome.runtime) {
                     console.log('[Connect Page] Requesting bridge page to reload and re-initialize SignClient...');
                     window.chrome.runtime.sendMessage(
@@ -641,14 +483,11 @@ function WalletConnectPage() {
                       (bridgeResponse) => {
                         if (chrome.runtime.lastError) {
                           console.warn('[Connect Page] Failed to force bridge reload:', chrome.runtime.lastError.message);
-                          // Don't fail the whole connection if bridge reload fails
-                          // The bridge will eventually load the session on its next init
                         } else if (bridgeResponse && bridgeResponse.success) {
                           console.log('[Connect Page] ✅ Bridge page reloaded and SignClient re-initialized.');
                         } else {
                           console.warn('[Connect Page] Bridge reload response:', bridgeResponse);
                         }
-                        // Continue to resolve the main connection process
                         resolve();
                       }
                     );
@@ -664,14 +503,11 @@ function WalletConnectPage() {
             );
           });
           
-          // Only if the Promise resolves (i.e., Background Script saved the data and bridge reloaded)
           setState('connected');
-          
         } else {
           throw new Error('Chrome extension runtime not available.');
         }
       } catch (err) {
-        // Handle various error formats (Error object, string, etc.)
         const errorMessage = err instanceof Error 
           ? err.message 
           : typeof err === 'string' 
@@ -679,7 +515,6 @@ function WalletConnectPage() {
           : String(err);
         const errorString = errorMessage.toLowerCase();
         
-        // Silently handle "Proposal expired" errors - user can retry
         if (errorString.includes('proposal expired') || errorString.includes('expired')) {
           console.debug('Proposal expired, resetting for retry');
           initialized.current = false;
@@ -687,7 +522,6 @@ function WalletConnectPage() {
           setState('initializing');
           setError(null);
           setQrCode(null);
-          // Don't log to console.error to avoid showing in UI
           return;
         }
         
@@ -702,196 +536,69 @@ function WalletConnectPage() {
     initWalletConnect();
   }, [retryTrigger]);
 
-  // Styles
-  const styles = {
-    container: {
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: '#0a0a0a',
-      color: '#ffffff',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-      padding: '2rem',
-    },
-    content: {
-      maxWidth: '600px',
-      width: '100%',
-      textAlign: 'center',
-    },
-    title: {
-      fontSize: '2rem',
-      fontWeight: 'bold',
-      marginBottom: '1rem',
-      color: '#ffffff',
-    },
-    description: {
-      fontSize: '1.1rem',
-      color: '#cccccc',
-      marginBottom: '2rem',
-      lineHeight: '1.6',
-    },
-    hint: {
-      fontSize: '0.9rem',
-      color: '#888888',
-      marginTop: '1rem',
-    },
-    qrContainer: {
-      margin: '2rem 0',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-    },
-    qrCode: {
-      maxWidth: '100%',
-      width: '400px',
-      height: '400px',
-      borderRadius: '12px',
-      backgroundColor: '#ffffff',
-      padding: '1rem',
-      boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
-    },
-    waitingText: {
-      marginTop: '1.5rem',
-      color: '#53ffb2',
-      fontSize: '1rem',
-    },
-    loadingContainer: {
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      gap: '1rem',
-    },
-    spinner: {
-      width: '40px',
-      height: '40px',
-      border: '4px solid #333333',
-      borderTop: '4px solid #53ffb2',
-      borderRadius: '50%',
-      animation: 'spin 1s linear infinite',
-    },
-    loadingText: {
-      color: '#888888',
-      fontSize: '1rem',
-    },
-    successIcon: {
-      fontSize: '4rem',
-      marginBottom: '1rem',
-    },
-    errorIcon: {
-      fontSize: '4rem',
-      marginBottom: '1rem',
-    },
-    errorText: {
-      color: '#ff6b6b',
-      fontSize: '1rem',
-      marginBottom: '2rem',
-      lineHeight: '1.6',
-    },
-    button: {
-      backgroundColor: '#53ffb2',
-      color: '#000000',
-      border: 'none',
-      padding: '12px 24px',
-      fontSize: '1rem',
-      fontWeight: 'bold',
-      borderRadius: '8px',
-      cursor: 'pointer',
-      transition: 'background-color 0.2s',
-    },
-  };
-
-  // Success state
   if (state === 'connected') {
-    return React.createElement('div', { style: styles.container },
-      React.createElement('div', { style: styles.content },
-        React.createElement('div', { style: styles.successIcon }, '✅'),
-        React.createElement('h1', { style: styles.title }, 'Wallet Connected!'),
-        React.createElement('p', { style: styles.description },
-          'Your wallet has been successfully connected to the FastRPC Gas Tank extension.'
-        ),
-        React.createElement('p', { style: styles.hint },
-          '**Session persistence confirmed.** You can safely close this tab and return to the extension.'
-        )
-      )
+    return (
+      <div className="container">
+        <div className="content">
+          <div className="success-icon">✅</div>
+          <h1 className="title">Wallet Connected!</h1>
+          <p className="description">
+            Your wallet has been successfully connected to the FastRPC Gas Tank extension.
+          </p>
+          <p className="hint">
+            **Session persistence confirmed.** You can safely close this tab and return to the extension.
+          </p>
+        </div>
+      </div>
     );
   }
 
-  // Error state
   if (state === 'error') {
-    return React.createElement('div', { style: styles.container },
-      React.createElement('div', { style: styles.content },
-        React.createElement('div', { style: styles.errorIcon }, '❌'),
-        React.createElement('h1', { style: styles.title }, 'Connection Error'),
-        React.createElement('p', { style: styles.errorText }, error || 'An unknown error occurred'),
-        React.createElement('button', 
-          { 
-            onClick: connectWallet, 
-            style: styles.button
-          },
-          'Try Again'
-        )
-      )
+    return (
+      <div className="container">
+        <div className="content">
+          <div className="error-icon">❌</div>
+          <h1 className="title">Connection Error</h1>
+          <p className="error-text">{error || 'An unknown error occurred'}</p>
+          <button onClick={connectWallet} className="button">
+            Try Again
+          </button>
+        </div>
+      </div>
     );
   }
 
-  // Loading/Connecting state
-  return React.createElement('div', { style: styles.container },
-    React.createElement('div', { style: styles.content },
-      React.createElement('h1', { style: styles.title }, 'Connect Your Wallet'),
-      React.createElement('p', { style: styles.description },
-        'Scan the QR code with your mobile wallet or approve the connection in your desktop wallet.'
-      ),
-      
-      state === 'initializing' && React.createElement('div', { style: styles.loadingContainer },
-        React.createElement('div', { style: styles.spinner }),
-        React.createElement('p', { style: styles.loadingText }, 'Generating QR code...')
-      ),
+  return (
+    <div className="container">
+      <div className="content">
+        <h1 className="title">Connect Your Wallet</h1>
+        <p className="description">
+          Scan the QR code with your mobile wallet or approve the connection in your desktop wallet.
+        </p>
+        
+        {state === 'initializing' && (
+          <div className="loading-container">
+            <div className="spinner"></div>
+            <p className="loading-text">Generating QR code...</p>
+          </div>
+        )}
 
-      qrCode && state === 'connecting' && React.createElement('div', { style: styles.qrContainer },
-        React.createElement('img', { 
-          src: qrCode, 
-          alt: 'WalletConnect QR Code', 
-          style: styles.qrCode
-        }),
-        React.createElement('p', { style: styles.waitingText },
-          'Waiting for connection...'
-        )
-      )
-    )
+        {qrCode && state === 'connecting' && (
+          <div className="qr-container">
+            <img 
+              src={qrCode} 
+              alt="WalletConnect QR Code" 
+              className="qr-code"
+            />
+            <p className="waiting-text">
+              Waiting for connection...
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
-// Initialize the app
-function initApp() {
-  const rootElement = document.getElementById('root');
-  if (!rootElement) {
-    console.error('Root element not found');
-    return;
-  }
-  
-  try {
-    const root = createRoot(rootElement);
-    root.render(React.createElement(WalletConnectPage));
-    console.log('React app rendered successfully');
-  } catch (error) {
-    console.error('Failed to render app:', error);
-    rootElement.innerHTML = `
-      <div style="color: #ff6b6b; padding: 2rem; text-align: center;">
-        <h1>Error Rendering Application</h1>
-        <p>${error.message}</p>
-        <p style="font-size: 0.9rem; color: #888; margin-top: 1rem;">
-          Check the browser console for more details.
-        </p>
-      </div>
-    `;
-  }
-}
+export default App;
 
-// Wait for DOM to be ready, then initialize
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initApp);
-} else {
-  // DOM is already ready
-  initApp();
-}
