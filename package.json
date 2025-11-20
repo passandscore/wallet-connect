@@ -1,0 +1,22 @@
+{
+  "name": "fastrpc-gas-tank-connect",
+  "version": "1.0.0",
+  "description": "FastRPC Gas Tank Wallet Connect - Single Page Application",
+  "type": "module",
+  "scripts": {
+    "dev": "npx serve .",
+    "start": "npx serve ."
+  },
+  "keywords": [
+    "walletconnect",
+    "ethereum",
+    "crypto",
+    "wallet"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+
