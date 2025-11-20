@@ -2,60 +2,34 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 
-// Load environment variables from API if available
-async function loadEnvironment() {
-  try {
-    const response = await fetch('/api/env.js');
-    if (response.ok) {
-      const script = await response.text();
-      new Function(script)();
-    }
-  } catch (error) {
-    console.warn('Could not load environment variables:', error);
-  }
-}
-
-// Initialize configuration
-function initializeConfig() {
-  window.APP_CONFIG = {
-    EXTENSION_ID: import.meta.env.VITE_EXTENSION_ID || 'obolaknhonmbgdcmfiihbdcenhhiiaao',
-    PROJECT_ID: '',
-  };
-
-  const envProjectId = window.__ENV__?.WALLETCONNECT_PROJECT_ID || 
-                       window.__ENV__?.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+// Log configuration source for debugging
+function logConfigSource() {
+  const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 
+                   import.meta.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
   
-  const urlParams = new URLSearchParams(window.location.search);
-  const projectIdFromUrl = urlParams.get('projectId');
-  const projectIdFromStorage = localStorage.getItem('WALLETCONNECT_PROJECT_ID');
+  const extensionId = import.meta.env.VITE_EXTENSION_ID;
   
-  if (envProjectId) {
-    window.APP_CONFIG.PROJECT_ID = envProjectId;
-    console.log('Using Project ID from environment variable');
-  } else if (projectIdFromUrl) {
-    window.APP_CONFIG.PROJECT_ID = projectIdFromUrl;
-    localStorage.setItem('WALLETCONNECT_PROJECT_ID', projectIdFromUrl);
-    console.log('Using Project ID from URL parameter');
-  } else if (projectIdFromStorage) {
-    window.APP_CONFIG.PROJECT_ID = projectIdFromStorage;
-    console.log('Using Project ID from localStorage');
+  if (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID) {
+    console.log('✅ Using Project ID from VITE_WALLETCONNECT_PROJECT_ID');
+  } else if (import.meta.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID) {
+    console.log('✅ Using Project ID from NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID');
   } else {
-    console.warn('No Project ID found. App may not work correctly.');
+    console.error('❌ VITE_WALLETCONNECT_PROJECT_ID or NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is required');
+  }
+  
+  if (extensionId) {
+    console.log('✅ Using Extension ID from VITE_EXTENSION_ID');
+  } else {
+    console.error('❌ VITE_EXTENSION_ID is required');
   }
 }
 
 // Initialize app
-async function init() {
+function init() {
   console.log('Initializing app...');
   
-  window.__ENV__ = window.__ENV__ || {};
-  
-  await Promise.race([
-    loadEnvironment(),
-    new Promise(resolve => setTimeout(resolve, 500))
-  ]);
-  
-  initializeConfig();
+  // Log where config is coming from (for debugging)
+  logConfigSource();
   
   const rootElement = document.getElementById('root');
   if (!rootElement) {
@@ -74,4 +48,3 @@ async function init() {
 }
 
 init();
-

@@ -40,7 +40,10 @@ function App() {
         const currentProjectId = getProjectId();
         
         if (!currentProjectId || currentProjectId === '') {
-          throw new Error('WalletConnect Project ID is missing. Please set VITE_WALLETCONNECT_PROJECT_ID or use URL parameter: ?projectId=YOUR_ID');
+          throw new Error(
+            'VITE_WALLETCONNECT_PROJECT_ID or NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ' +
+            'environment variable is required. Please set it in your .env file or Vercel project settings.'
+          );
         }
 
         setState('initializing');
@@ -342,7 +345,10 @@ function App() {
         const currentProjectId = getProjectId();
         
         if (!currentProjectId || currentProjectId === '') {
-          throw new Error('WalletConnect Project ID is missing. Please set VITE_WALLETCONNECT_PROJECT_ID or use URL parameter: ?projectId=YOUR_ID');
+          throw new Error(
+            'VITE_WALLETCONNECT_PROJECT_ID or NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ' +
+            'environment variable is required. Please set it in your .env file or Vercel project settings.'
+          );
         }
 
         setState('initializing');
